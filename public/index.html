@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Twofold — games for two, from anywhere</title>
+  <meta name="description" content="Realtime games and activities for couples on two different devices. Free, no app needed.">
+  <meta name="theme-color" content="#F8F9FB">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💞</text></svg>">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/" id="brandLink"><span class="logo">💞</span>Twofold</a>
+    <button class="chip" id="nameBtn" title="Change your name"></button>
+  </header>
+
+  <main id="home">
+    <h1>Activities</h1>
+    <p class="sub">Realtime games for two people on two different devices — one shared room, no app needed.</p>
+
+    <section class="featured">
+      <div class="feat-art" aria-hidden="true">
+        <div class="mini-strip"><i class="p"></i><i class="b"></i><i class="p"></i><i class="b"></i><i class="p"></i><i class="b"></i></div>
+      </div>
+      <div class="feat-body">
+        <span class="tag">Free to play</span>
+        <h2>Online Photobooth</h2>
+        <p>Both cameras turn on, a countdown starts, and you get one photo strip with the two of you side by side.</p>
+        <button class="btn primary" id="openBooth">Open the booth</button>
+        <div class="joinrow">
+          <input id="joinCode" placeholder="Join with a code" maxlength="5" autocomplete="off" autocapitalize="characters">
+          <button class="btn" id="joinBtn">Join</button>
+          <button class="btn ghost" id="inviteBtn">Invite</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="thumbs" id="thumbs"></div>
+
+    <div class="section-head"><h2>All games</h2><span class="muted" id="tried"></span></div>
+    <div class="cards" id="cards"></div>
+    <footer class="foot">Tip: you can each be on a different computer or phone, anywhere in the world.</footer>
+  </main>
+
+  <main id="room" hidden>
+    <div class="roombar">
+      <div class="rb-left">
+        <button class="btn small ghost" id="backBtn">← All games</button>
+        <span class="code-pill" title="Room code">Room <b id="roomCode"></b></span>
+        <button class="btn small" id="copyInvite">Copy invite link</button>
+      </div>
+      <div class="rb-right">
+        <span class="presence" id="presence"></span>
+        <button class="btn small ghost" id="leaveBtn">Leave</button>
+      </div>
+    </div>
+    <div id="stage"></div>
+  </main>
+
+  <aside id="chat" hidden>
+    <button id="chatToggle" class="chat-toggle">💬 Chat <span id="chatBadge" hidden>•</span></button>
+    <div id="chatPanel" hidden>
+      <div id="chatLog"></div>
+      <form id="chatForm"><input id="chatInput" placeholder="Say something…" maxlength="500" autocomplete="off"><button class="btn small primary">Send</button></form>
+    </div>
+  </aside>
+
+  <dialog id="nameDlg">
+    <form method="dialog" id="nameForm">
+      <h3>What should your partner call you?</h3>
+      <input id="nameInput" maxlength="24" required placeholder="Your name">
+      <button class="btn primary" value="ok">Continue</button>
+    </form>
+  </dialog>
+
+  <div id="toast"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/content.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
