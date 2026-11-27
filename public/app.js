@@ -10,10 +10,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const fmt = (s) => { s = Math.ceil(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
 // ---------------- shared session state ----------------
-const S = { me: null, code: null, players: {}, state: {} };
+const CID = localStorage.cid || (localStorage.cid = Math.random().toString(36).slice(2));
+const S = { me: CID, code: null, players: {}, state: {}, chat: [] };
 const ids = () => Object.entries(S.players).sort((a, b) => a[1].joined - b[1].joined).map((e) => e[0]);
 const partner = () => ids().find((id) => id !== S.me);
-const isHost = () => ids()[0] === S.me;
+const online = (id) => !!S.players[id]?.online;
+// the first person currently online does bookkeeping (reveals, scoring) — works even if the other is away
+const isHost = () => ids().filter(online)[0] === S.me;
 const pname = (id) => (id === S.me ? 'You' : S.players[id]?.name || 'Partner');
 const patch = (p) => socket.emit('state', p);
 const gpatch = (p) => patch({ g: p });
@@ -26,43 +29,80 @@ function toast(msg) {
 }
 
 // ---------------- catalog ----------------
+// live: both people need to be online at the same time. Everything else can be played anytime.
 const META = [
-  { id: 'photobooth', t: 'Online Photobooth', m: 5, req: 'cam', e: '📸', c: '#ffd0dd' },
-  { id: 'quiz', t: 'How Well Do You Know Me', m: 10, req: 'none', e: '💭', c: '#e5dbff' },
-  { id: 'draw', t: 'Draw Together', m: 10, req: 'none', e: '🎨', c: '#ffe8c2' },
-  { id: 'arcade', t: 'Arcade', m: 5, req: 'cam', e: '🕹️', c: '#c9f5e2' },
-  { id: 'tod', t: 'Truth or Dare', m: 15, req: 'none', e: '🔥', c: '#ffd6c9' },
-  { id: 'honest', t: 'Honest Cards', m: 20, req: 'none', e: '🃏', c: '#d6e4ff' },
-  { id: 'lovematch', t: 'Love Match', m: 10, req: 'none', e: '💘', c: '#ffd0e8' },
-  { id: 'color', t: 'Color Match', m: 5, req: 'none', e: '🌈', c: '#fff3b8' },
-  { id: 'iq', t: 'IQ Duel', m: 10, req: 'none', e: '🧠', c: '#d9f0ff' },
-  { id: 'escape', t: 'Escape Room', m: 20, req: 'none', e: '🗝️', c: '#e6e1d6' },
-  { id: 'debate', t: 'Couples Debate', m: 15, req: 'video', e: '🎤', c: '#e0f7d4' },
-  { id: 'court', t: 'Couples Court', m: 15, req: 'video', e: '⚖️', c: '#ece0ff' },
+  { id: 'photobooth', t: 'Online Photobooth', m: 5, req: 'cam', live: true, e: '📸', c: '#ffd0dd' },
+  { id: 'wyr', t: 'Would You Rather', m: 10, e: '🤔', c: '#ffe0c7' },
+  { id: 'quiz', t: 'How Well Do You Know Me', m: 10, e: '💭', c: '#e5dbff' },
+  { id: 'pictionary', t: 'Guess My Drawing', m: 15, live: true, e: '✏️', c: '#fff1b8' },
+  { id: 'ttl', t: 'Two Truths and a Lie', m: 10, e: '🤥', c: '#d8f3e6' },
+  { id: 'story', t: 'Story Together', m: 15, turn: true, e: '📖', c: '#e3e9ff' },
+  { id: 'nhie', t: 'Never Have I Ever', m: 10, e: '🙊', c: '#ffdcd2' },
+  { id: 'draw', t: 'Draw Together', m: 10, live: true, e: '🎨', c: '#ffe8c2' },
+  { id: 'honest', t: 'Honest Cards', m: 20, e: '🃏', c: '#d6e4ff' },
+  { id: 'lovematch', t: 'Love Match', m: 10, e: '💘', c: '#ffd0e8' },
+  { id: 'hangman', t: 'Hangman', m: 10, turn: true, e: '🔤', c: '#ece3ff' },
+  { id: 'tictactoe', t: 'Tic-Tac-Toe', m: 5, turn: true, e: '⭕', c: '#d9f0ff' },
+  { id: 'connect4', t: 'Connect Four', m: 10, turn: true, e: '🔴', c: '#ffe3e3' },
+  { id: 'battleship', t: 'Battleship', m: 20, turn: true, e: '🚢', c: '#d4ecf7' },
+  { id: 'bucket', t: 'Our Bucket List', m: 10, e: '🌍', c: '#dff5d8' },
+  { id: 'escape', t: 'Escape Room', m: 20, e: '🗝️', c: '#e6e1d6' },
 ];
+const metaLabel = (m) => m.req === 'cam' ? '📷 Live, camera' : m.live ? '⚡ Live' : m.turn ? '🕓 Take turns' : '🕓 Anytime';
 const metaOf = (id) => META.find((m) => m.id === id);
-const REQ = { cam: '📷 Camera on', none: 'No camera', video: '🎥 Video call' };
 const tried = () => { try { return JSON.parse(localStorage.tried || '[]'); } catch { return []; } };
 const markTried = (id) => { const t = new Set(tried()); t.add(id); localStorage.tried = JSON.stringify([...t]); };
 
 let STATS = {};
 function cardsHTML(withBadges) {
-  const ranks = Object.entries(STATS).sort((a, b) => b[1] - a[1]).slice(0, 3).map((e) => e[0]);
+  const ranks = Object.entries(STATS).filter((e) => metaOf(e[0])).sort((a, b) => b[1] - a[1]).slice(0, 3).map((e) => e[0]);
   const tr = tried();
   return META.map((m) => {
     const r = ranks.indexOf(m.id);
     return `<button class="card" data-game="${m.id}">
       ${withBadges && r >= 0 && STATS[m.id] > 0 ? `<span class="badge">#${r + 1} most played</span>` : ''}
-      ${tr.includes(m.id) ? '<span class="tried-dot">✓ tried</span>' : ''}
       <div class="coin" style="background:${m.c}">${m.e}</div>
-      <div><h3>${m.t}</h3><div class="meta">${m.m} min · ${REQ[m.req]}</div></div></button>`;
+      <div><h3>${m.t}</h3><div class="meta">${m.m} min · ${metaLabel(m)}${tr.includes(m.id) ? ' · <span style="color:var(--green)">✓ tried</span>' : ''}</div></div></button>`;
   }).join('');
 }
 function renderHome() {
   $('#thumbs').innerHTML = META.map((m) => `<button class="thumb" data-game="${m.id}"><div class="coin" style="background:${m.c}">${m.e}</div><span>${m.t}</span></button>`).join('');
   $('#cards').innerHTML = cardsHTML(true);
   $('#tried').textContent = `${tried().filter((t) => metaOf(t)).length} of ${META.length} tried`;
+  renderMyRooms();
 }
+// ---- saved rooms (play anytime) ----
+const snapKey = (code) => `room:${code}`;
+function loadSnap(code) { try { return JSON.parse(localStorage[snapKey(code)] || 'null'); } catch { return null; } }
+function saveSnap() {
+  if (!S.code || !S.players[CID]) return;
+  const members = {};
+  for (const [k, v] of Object.entries(S.players)) members[k] = { name: v.name, joined: v.joined };
+  try { localStorage[snapKey(S.code)] = JSON.stringify({ code: S.code, members, state: S.state, chat: S.chat.slice(-200), saved: Date.now() }); } catch {}
+}
+function mySnaps() {
+  return Object.keys(localStorage).filter((k) => k.startsWith('room:')).map((k) => { try { return JSON.parse(localStorage[k]); } catch { return null; } })
+    .filter((x) => x && x.members && Object.keys(x.members).length === 2).sort((a, b) => b.saved - a.saved);
+}
+function renderMyRooms() {
+  const list = mySnaps().slice(0, 8);
+  $('#myRooms').hidden = !list.length;
+  $('#myRoomsList').innerHTML = list.map((r) => {
+    const other = Object.entries(r.members).find(([k]) => k !== CID)?.[1]?.name || 'Partner';
+    const m = metaOf(r.state?.game);
+    const turn = m && GAMES[m.id]?.turnOf ? GAMES[m.id].turnOf(r.state.g || {}, Object.keys(r.members).sort((a, b) => r.members[a].joined - r.members[b].joined)) : null;
+    return `<div class="room-card" data-room="${esc(r.code)}">
+      <div class="coin" style="background:${m?.c || '#eee'}">${m?.e || '💞'}</div>
+      <div class="rc-body"><b>With ${esc(other)}</b><div class="meta">${m ? esc(m.t) : 'Choosing a game'} · ${new Date(r.saved).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</div>
+      ${turn === CID ? '<span class="your-turn">Your turn!</span>' : ''}</div>
+      <button class="rc-x" data-forget="${esc(r.code)}" title="Forget this room">✕</button></div>`;
+  }).join('');
+}
+$('#myRoomsList').addEventListener('click', (e) => {
+  const f = e.target.closest('[data-forget]');
+  if (f) { e.stopPropagation(); delete localStorage[snapKey(f.dataset.forget)]; renderMyRooms(); return; }
+  const r = e.target.closest('[data-room]'); if (r) joinRoom(r.dataset.room);
+});
 fetch('/api/stats').then((r) => r.json()).then((s) => { STATS = s; if (!S.code) renderHome(); }).catch(() => {});
 
 // ---------------- name ----------------
@@ -80,7 +120,7 @@ function updateNameBtn() { $('#nameBtn').textContent = localStorage.name ? `👤
 // ---------------- room flow ----------------
 async function createRoom(game, thenInvite) {
   const name = await ensureName();
-  socket.emit('create', name, (res) => {
+  socket.emit('create', { name, cid: CID }, (res) => {
     enterRoom(res.code);
     if (game) selectGame(game);
     if (thenInvite) invite();
@@ -90,7 +130,7 @@ async function joinRoom(code, silent) {
   code = String(code || '').trim().toUpperCase();
   if (!code) return toast('Enter a room code');
   const name = await ensureName();
-  socket.emit('join', { code, name }, (res) => {
+  socket.emit('join', { code, name, cid: CID, snapshot: loadSnap(code) }, (res) => {
     if (res.error) { toast(res.error); if (silent) leaveRoom(); return; }
     enterRoom(res.code);
   });
@@ -98,15 +138,17 @@ async function joinRoom(code, silent) {
 function enterRoom(code) {
   S.code = code;
   history.replaceState(null, '', `/?room=${code}`);
-  $('#home').hidden = true; $('#room').hidden = false; $('#chat').hidden = false;
+  $('#home').hidden = true; $('#room').hidden = false;
   $('#roomCode').textContent = code;
+  saveSnap();
+  renderRoom();
 }
 function leaveRoom() {
   socket.emit('leave');
-  unmount(); S.code = null; S.players = {}; S.state = {};
+  unmount(); S.code = null; S.players = {}; S.state = {}; S.chat = [];
   history.replaceState(null, '', '/');
-  $('#home').hidden = false; $('#room').hidden = true; $('#chat').hidden = true;
-  $('#chatLog').innerHTML = '';
+  $('#home').hidden = false; $('#room').hidden = true;
+  $('#chatLog').innerHTML = '<div class="chat-empty">Say hi 👋 — messages stay here while you play.</div>';
   renderHome();
 }
 const inviteLink = () => `${location.origin}/?room=${S.code}`;
@@ -120,14 +162,13 @@ async function invite() {
 }
 
 socket.on('connect', () => {
-  S.me = socket.id;
   if (S.code) joinRoom(S.code, true); // reconnect after a drop
 });
-socket.on('room', (d) => { S.players = d.players; S.state = d.state; renderRoom(); });
-socket.on('state', (st) => { S.state = st; renderRoom(); });
+socket.on('room', (d) => { S.players = d.players; S.state = d.state; saveSnap(); renderRoom(); });
+socket.on('state', (st) => { S.state = st; saveSnap(); renderRoom(); });
 socket.on('signal', (d) => RTC.onSignal(d));
 socket.on('msg', (d) => {
-  if (d.t === 'chat') return addChat(d.text, false);
+  if (d.t === 'typing') return showTyping();
   current?.onMsg?.(d);
 });
 
@@ -139,19 +180,21 @@ function renderRoom() {
   if (!S.code) return;
   const p = partner();
   const pr = $('#presence');
-  pr.className = 'presence' + (p ? ' on' : '');
-  pr.innerHTML = `<i></i>${p ? `${esc(S.players[p].name)} is here` : 'Waiting for your partner'}`;
+  pr.className = 'presence' + (p && online(p) ? ' on' : '');
+  pr.innerHTML = `<i></i>${!p ? 'Waiting for your partner' : online(p) ? `${esc(S.players[p].name)} is here` : `${esc(S.players[p].name)} is away`}`;
   $('#backBtn').hidden = !S.state.game;
 
   const g = S.state.game;
   const two = ids().length >= 2;
-  const key = !g ? 'picker' : two ? `${g}:${S.state.run}` : `wait:${g}`;
+  const liveBlocked = g && two && metaOf(g)?.live && !online(p);
+  const key = !g ? 'picker' : !two ? `wait:${g}` : liveBlocked ? `away:${g}` : `${g}:${S.state.run}`;
   if (key !== stageKey) {
     unmount();
     stageKey = key;
     stage.innerHTML = '';
     if (!g) mountPicker();
     else if (!two) mountWaiting(g);
+    else if (liveBlocked) mountAway(g);
     else mountGame(g);
   } else if (current?.update) current.update(S.state.g || {});
 }
@@ -167,7 +210,7 @@ function mountPicker() {
   stage.innerHTML = `<div class="panel wide" style="text-align:left">
     <div class="kicker">${p ? `You & ${esc(S.players[p].name)}` : 'Your room'}</div>
     <h2>Pick something to play</h2>
-    <p class="muted">${p ? 'Whatever you pick opens on both screens.' : `Share code <b>${S.code}</b> or the invite link — you can pick a game now and it'll start when they arrive.`}</p>
+    <p class="muted">${p ? `Whatever you pick opens on both screens. 🕓 games can be played even when ${esc(S.players[p].name)} is away: they'll see your move when they're back.` : `Share code <b>${S.code}</b> or the invite link — you can pick a game now and it'll start when they arrive.`}</p>
     <div class="cards">${cardsHTML(false)}</div></div>`;
 }
 
@@ -182,12 +225,21 @@ function mountWaiting(g) {
     <p class="waiting">The game starts as soon as they join.</p></div>`;
 }
 
+function mountAway(g) {
+  const m = metaOf(g), p = partner();
+  stage.innerHTML = `<div class="panel">
+    <div class="big-emoji">${m.e}</div><div class="kicker">${m.t}</div>
+    <h2>${esc(S.players[p].name)} is away right now</h2>
+    <p class="muted">${m.t} is a live game, so you both need to be here. Send them the link, or pick a game you can play anytime and take your turn now.</p>
+    <div class="row"><button class="btn primary" data-a="invite">Copy invite link</button><button class="btn" data-a="home">Pick another game</button></div></div>`;
+}
+
 function mountGame(id) {
   const m = metaOf(id);
   const el = document.createElement('div');
   stage.appendChild(el);
   markTried(id);
-  if (m.req !== 'none') RTC.start();
+  if (m.req === 'cam') RTC.start();
   current = GAMES[id].create(el);
   current.update?.(S.state.g || {});
 }
@@ -202,19 +254,33 @@ stage.addEventListener('click', (e) => {
 });
 
 // ---------------- chat ----------------
-function addChat(text, mine) {
+socket.on('chatlog', (list) => { S.chat = list.slice(); $('#chatLog').innerHTML = list.length ? '' : '<div class="chat-empty">Say hi 👋 — messages stay here while you play.</div>'; list.forEach(renderChat); saveSnap(); });
+socket.on('chat', (m) => { S.chat.push(m); saveSnap(); renderChat(m); });
+function renderChat(m) {
+  const log = $('#chatLog'), mine = m.cid === CID;
+  $('.chat-empty', log)?.remove();
   const d = document.createElement('div');
   d.className = 'msg' + (mine ? ' mine' : '');
-  d.textContent = text;
-  $('#chatLog').appendChild(d);
-  $('#chatLog').scrollTop = 1e9;
-  if (!mine && $('#chatPanel').hidden) $('#chatBadge').hidden = false;
+  const time = new Date(m.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  d.innerHTML = `<div class="msg-meta">${mine ? 'You' : esc(m.name)} · ${time}</div>`;
+  d.appendChild(document.createTextNode(m.text));
+  log.appendChild(d);
+  log.scrollTop = 1e9;
+  if (!mine) { $('#typing').textContent = ''; if (document.hidden) document.title = '💬 New message — Twofold'; }
 }
-$('#chatToggle').onclick = () => { const p = $('#chatPanel'); p.hidden = !p.hidden; $('#chatBadge').hidden = true; if (!p.hidden) $('#chatInput').focus(); };
+document.addEventListener('visibilitychange', () => { if (!document.hidden) document.title = 'Twofold — games for two, from anywhere'; });
+let typingTm;
+function showTyping() {
+  const p = partner(); if (!p) return;
+  $('#typing').textContent = `${S.players[p].name} is typing…`;
+  clearTimeout(typingTm); typingTm = setTimeout(() => ($('#typing').textContent = ''), 2500);
+}
+let lastTyping = 0;
+$('#chatInput').addEventListener('input', () => { if (Date.now() - lastTyping > 1500) { lastTyping = Date.now(); socket.emit('msg', { t: 'typing' }); } });
 $('#chatForm').onsubmit = (e) => {
   e.preventDefault();
   const v = $('#chatInput').value.trim(); if (!v) return;
-  socket.emit('msg', { t: 'chat', text: v }); addChat(v, true); $('#chatInput').value = '';
+  socket.emit('chat', v); $('#chatInput').value = '';
 };
 
 // ---------------- video (WebRTC, perfect negotiation) ----------------
@@ -297,23 +363,10 @@ function keepInputs(el, fn) { // re-render without losing what the user is typin
   fn();
   saved.forEach(([id, v, f]) => { const i = id && el.querySelector('#' + id); if (i) { i.value = v; if (f) i.focus(); } });
 }
-function stepClock(stepsFor) {
-  let step = null, t0 = 0, fired = null;
-  const iv = setInterval(() => {
-    const g = S.state.g || {}; const steps = stepsFor(g); const st = steps[step];
-    if (step == null || !st) return;
-    const left = Math.max(0, st.sec - (performance.now() - t0) / 1000);
-    const t = document.getElementById('timer'); if (t) t.textContent = fmt(left);
-    const bar = document.getElementById('tbar'); if (bar) bar.style.width = `${(left / st.sec) * 100}%`;
-    if (left <= 0 && isHost() && fired !== step) { fired = step; gpatch({ step: step + 1 }); }
-  }, 200);
-  return { sync(g) { if (g.step !== step) { step = g.step; t0 = performance.now(); } }, stop() { clearInterval(iv); } };
-}
-
 // ---------------- GAMES ----------------
 const GAMES = {};
 
-/* 1. Online Photobooth */
+/* Online Photobooth */
 GAMES.photobooth = {
   init: () => ({ run: 0 }),
   create(el) {
@@ -380,7 +433,7 @@ GAMES.photobooth = {
   },
 };
 
-/* 2. How Well Do You Know Me */
+/* How Well Do You Know Me */
 GAMES.quiz = {
   init: () => ({ q: 0, order: shuffle(range(CONTENT.quiz.length)).slice(0, 10), ans: {}, score: {}, reveal: false }),
   create(el) {
@@ -476,103 +529,6 @@ GAMES.draw = {
   },
 };
 
-/* 4. Arcade — Reaction Duel on camera */
-GAMES.arcade = {
-  init: () => ({ round: 0, phase: 'idle', taps: {}, wins: {}, last: null }),
-  create(el) {
-    const WIN = 3;
-    el.innerHTML = `<div class="panel wide">${videoHTML()}<div class="pad idle" id="pad"></div><div id="info"></div></div>`;
-    updateVideos();
-    let lastRound = -1, judged = -1, local = 'idle', goAt = null, timer = null, myTime = null;
-    const pad = $('#pad', el);
-    function draw() {
-      const g = S.state.g || {};
-      const over = ids().some((id) => (g.wins?.[id] || 0) >= WIN);
-      if (local === 'wait') { pad.className = 'pad wait'; pad.textContent = myTime === -1 ? '😬 False start!' : 'Wait for green…'; }
-      else if (local === 'go') { pad.className = 'pad go'; pad.textContent = 'TAP!'; }
-      else if (local === 'tapped') { pad.className = 'pad idle'; pad.textContent = myTime === -1 ? '😬 False start!' : `${myTime} ms`; }
-      else { pad.className = 'pad idle'; pad.textContent = g.phase === 'result' ? (g.last?.winner ? (g.last.winner === S.me ? '🏆 You win the round!' : `${pname(g.last.winner)} wins the round`) : 'No winner this round') : 'Reaction Duel'; }
-      let info = '';
-      if (g.phase === 'result' && g.last) info += `<div class="reveal">${ids().map((id) => `<div><div class="who">${esc(pname(id))}</div><b>${g.last.t[id] === -1 ? 'False start' : g.last.t[id] >= 3000 ? 'Too slow' : g.last.t[id] + ' ms'}</b></div>`).join('')}</div>`;
-      if (local === 'idle') info += over
-        ? `<h2 style="margin-top:16px">${esc(pname(ids().find((id) => (g.wins[id] || 0) >= WIN)))} ${ids().find((id) => (g.wins[id] || 0) >= WIN) === S.me ? 'win' : 'wins'} the match! 🏆</h2>${endButtons()}`
-        : `<p class="muted">When the pad turns green, tap it (or press Space) faster than your partner. Tap early and you lose the round. First to ${WIN} wins.</p><div class="row"><button class="btn primary big" data-a="go">${g.round ? 'Next round' : 'Start'}</button></div>`;
-      if (local === 'tapped') info += `<p class="waiting">Waiting for ${esc(pname(partner()))}…</p>`;
-      $('#info', el).innerHTML = info + scoresHTML(g.wins);
-    }
-    function startRound(g) {
-      clearTimeout(timer); goAt = null; myTime = null; local = 'wait'; draw();
-      timer = setTimeout(() => { goAt = performance.now(); local = 'go'; draw(); timer = setTimeout(() => tap(true), 3000); }, g.delay);
-    }
-    function tap(timeout) {
-      if (local !== 'wait' && local !== 'go') return;
-      clearTimeout(timer);
-      myTime = goAt ? (timeout ? 3000 : Math.round(performance.now() - goAt)) : -1;
-      local = 'tapped'; draw();
-      gpatch({ taps: { [S.me]: myTime } });
-    }
-    pad.onpointerdown = () => tap();
-    const key = (e) => { if (e.code === 'Space' && e.target.tagName !== 'INPUT') { e.preventDefault(); tap(); } };
-    window.addEventListener('keydown', key);
-    el.onclick = (e) => { if (e.target.closest('[data-a="go"]')) { const g = S.state.g; gpatch({ phase: 'wait', round: g.round + 1, delay: 1500 + rand(3500), taps: null }); } };
-    return {
-      update(g) {
-        if (g.phase === 'wait' && g.round !== lastRound) { lastRound = g.round; startRound(g); }
-        if (g.phase === 'wait' && both(g.taps) && isHost() && judged !== g.round) {
-          judged = g.round;
-          const [a, b] = ids(), ta = g.taps[a], tb = g.taps[b];
-          const ok = (t) => t >= 0 && t < 3000;
-          let w = null;
-          if (ok(ta) && ok(tb)) w = ta < tb ? a : tb < ta ? b : null;
-          else if (ok(ta) || (ta >= 0 && tb === -1)) w = a;
-          else if (ok(tb) || (tb >= 0 && ta === -1)) w = b;
-          gpatch({ phase: 'result', last: { winner: w, t: g.taps }, wins: w ? { [w]: (g.wins?.[w] || 0) + 1 } : {} });
-        }
-        if (g.phase !== 'wait') { local = 'idle'; clearTimeout(timer); }
-        draw();
-      },
-      destroy() { clearTimeout(timer); window.removeEventListener('keydown', key); },
-    };
-  },
-};
-
-/* 5. Truth or Dare */
-GAMES.tod = {
-  init: () => ({ turn: 0, card: null, done: {}, chicken: {} }),
-  create(el) {
-    el.onclick = (e) => {
-      const a = e.target.closest('[data-a]')?.dataset.a; const g = S.state.g;
-      const cur = ids()[g.turn % 2];
-      if (a === 'truth' || a === 'dare' || a === 'random') {
-        const type = a === 'random' ? (Math.random() < 0.5 ? 'truth' : 'dare') : a;
-        const list = type === 'truth' ? CONTENT.truths : CONTENT.dares;
-        gpatch({ card: { type, i: rand(list.length) } });
-      }
-      if (a === 'done') gpatch({ turn: g.turn + 1, card: null, done: { [cur]: (g.done?.[cur] || 0) + 1 } });
-      if (a === 'skip') gpatch({ turn: g.turn + 1, card: null, chicken: { [cur]: (g.chicken?.[cur] || 0) + 1 } });
-    };
-    return {
-      update(g) {
-        const cur = ids()[g.turn % 2], mine = cur === S.me;
-        let body;
-        if (!g.card) {
-          body = mine
-            ? `<div class="kicker">Your turn</div><h2>Truth or dare?</h2><div class="row"><button class="btn blue big" data-a="truth">Truth</button><button class="btn pink big" data-a="dare">Dare</button><button class="btn big" data-a="random">🎲 Surprise me</button></div>`
-            : `<div class="big-emoji">🤔</div><h2>${esc(pname(cur))} is choosing…</h2><p class="waiting">Truth or dare?</p>`;
-        } else {
-          const text = (g.card.type === 'truth' ? CONTENT.truths : CONTENT.dares)[g.card.i];
-          body = `<div class="kicker">${esc(pname(cur))} ${mine ? 'picked' : 'picked'} ${g.card.type}</div>
-            <div class="big-emoji">${g.card.type === 'truth' ? '🗣️' : '🔥'}</div><div class="q">${esc(text)}</div>
-            <div class="row"><button class="btn primary" data-a="done">✅ ${mine ? 'I did it' : 'They did it'}</button><button class="btn" data-a="skip">🐔 Chicken out</button></div>`;
-        }
-        const stats = ids().map((id) => `<span class="score ${id === S.me ? 'me' : 'them'}">${esc(pname(id))}: ${g.done?.[id] || 0} done · ${g.chicken?.[id] || 0} 🐔</span>`).join('');
-        el.innerHTML = `<div class="panel"><div class="kicker">Round ${Math.floor(g.turn / 2) + 1}</div>${body}<div class="scores">${stats}</div>
-          <div class="row"><button class="btn small ghost" data-a="home">End game</button></div></div>`;
-      },
-    };
-  },
-};
-
 /* 6. Honest Cards */
 GAMES.honest = {
   init: () => ({ level: 1, idx: { 1: 0, 2: 0, 3: 0 }, order: { 1: shuffle(range(CONTENT.honest[1].length)), 2: shuffle(range(CONTENT.honest[2].length)), 3: shuffle(range(CONTENT.honest[3].length)) }, ans: {} }),
@@ -648,118 +604,6 @@ GAMES.lovematch = {
   },
 };
 
-/* 8. Color Match */
-const hsl = (c) => `hsl(${c[0]} ${c[1]}% ${c[2]}%)`;
-function hslToRgb([h, s, l]) {
-  s /= 100; l /= 100; const k = (n) => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
-  const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-  return [f(0) * 255, f(8) * 255, f(4) * 255];
-}
-const colorScore = (a, b) => { const x = hslToRgb(a), y = hslToRgb(b); const d = Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]); return Math.max(0, Math.round(100 - (d / 441.7) * 180)); };
-GAMES.color = {
-  init: () => ({ r: 0, targets: range(5).map(() => [rand(360), 45 + rand(50), 35 + rand(35)]), ans: {}, score: {}, reveal: false }),
-  create(el) {
-    const R = 5; let shown = -1, phase = 'memo', val = [180, 60, 50], scored = -1, tm;
-    el.oninput = (e) => {
-      const i = e.target.dataset.s; if (i === undefined) return;
-      val[+i] = +e.target.value; $('#preview', el).style.background = hsl(val);
-    };
-    el.onclick = (e) => {
-      const a = e.target.closest('[data-a]')?.dataset.a; const g = S.state.g;
-      if (a === 'submit') gpatch({ ans: { [S.me]: [...val] } });
-      if (a === 'next') gpatch({ r: g.r + 1, ans: null, reveal: false });
-    };
-    function render(g) {
-      if (g.r >= R) {
-        const [a, b] = ids(); const sa = g.score[a] || 0, sb = g.score[b] || 0;
-        el.innerHTML = `<div class="panel"><div class="big-emoji">🌈</div><h2>${sa === sb ? "It's a tie!" : `${esc(pname(sa > sb ? a : b))} ${(sa > sb ? a : b) === S.me ? 'have' : 'has'} the better color memory`}</h2>${scoresHTML(g.score)}${endButtons()}</div>`;
-        return;
-      }
-      const t = g.targets[g.r], ans = g.ans || {};
-      let body;
-      if (g.reveal) {
-        body = `<div class="cmp"><div style="background:${hsl(t)}">Target</div>${ids().map((id) => `<div style="background:${hsl(ans[id])}">${esc(pname(id))}: ${colorScore(t, ans[id])}</div>`).join('')}</div>
-          <div class="row"><button class="btn primary" data-a="next">${g.r + 1 < R ? 'Next color →' : 'See results'}</button></div>`;
-      } else if (phase === 'memo') {
-        body = `<h2>Memorize this color!</h2><div class="swatch-big" style="background:${hsl(t)}"></div><p class="muted">It disappears in 3 seconds…</p>`;
-      } else if (ans[S.me]) {
-        body = `<div class="swatch-big" style="background:${hsl(ans[S.me])}"></div><p class="waiting">Locked in. Waiting for ${esc(pname(partner()))}…</p>`;
-      } else {
-        body = `<h2>Recreate it from memory</h2><div class="swatch-big" id="preview" style="background:${hsl(val)}"></div>
-          <div class="sliders"><label>Hue</label><input type="range" data-s="0" min="0" max="359" value="${val[0]}">
-          <label>Saturation</label><input type="range" data-s="1" min="0" max="100" value="${val[1]}">
-          <label>Lightness</label><input type="range" data-s="2" min="0" max="100" value="${val[2]}"></div>
-          <div class="row"><button class="btn primary" data-a="submit">Lock in</button></div>`;
-      }
-      el.innerHTML = `<div class="panel"><div class="kicker">Color ${g.r + 1} of ${R}</div>${body}${scoresHTML(g.score)}</div>`;
-    }
-    return {
-      update(g) {
-        if (g.r !== shown && g.r < R) {
-          shown = g.r; phase = 'memo'; val = [rand(360), 50, 50]; clearTimeout(tm);
-          tm = setTimeout(() => { phase = 'guess'; render(S.state.g); }, 3000);
-        }
-        if (!g.reveal && both(g.ans) && isHost() && scored !== g.r) {
-          scored = g.r; const add = {};
-          ids().forEach((id) => (add[id] = (g.score?.[id] || 0) + colorScore(g.targets[g.r], g.ans[id])));
-          gpatch({ reveal: true, score: add });
-        }
-        render(g);
-      },
-      destroy() { clearTimeout(tm); },
-    };
-  },
-};
-
-/* 9. IQ Duel */
-GAMES.iq = {
-  init: () => ({ q: 0, order: shuffle(range(CONTENT.iq.length)).slice(0, 8), ans: {}, score: {}, reveal: false }),
-  create(el) {
-    const LIMIT = 30; let shown = -1, t0 = 0, scored = -1;
-    const iv = setInterval(() => {
-      const g = S.state.g; if (!g || g.reveal || g.q >= g.order.length || g.ans?.[S.me]) return;
-      const left = Math.max(0, LIMIT - (performance.now() - t0) / 1000);
-      const b = $('#tbar', el); if (b) b.style.width = `${(left / LIMIT) * 100}%`;
-      if (left <= 0) gpatch({ ans: { [S.me]: { c: -1, t: LIMIT * 1000 } } });
-    }, 200);
-    el.onclick = (e) => {
-      const g = S.state.g; const b = e.target.closest('[data-p]');
-      if (b && !g.ans?.[S.me]) gpatch({ ans: { [S.me]: { c: +b.dataset.p, t: Math.round(performance.now() - t0) } } });
-      if (e.target.closest('[data-a="next"]')) gpatch({ q: g.q + 1, ans: null, reveal: false });
-    };
-    return {
-      update(g) {
-        const N = g.order.length;
-        if (g.q >= N) {
-          const [a, b] = ids(); const sa = g.score[a] || 0, sb = g.score[b] || 0;
-          el.innerHTML = `<div class="panel"><div class="big-emoji">🧠</div><h2>${sa === sb ? 'Evenly matched big brains!' : `${esc(pname(sa > sb ? a : b))} ${(sa > sb ? a : b) === S.me ? 'win' : 'wins'} the duel`}</h2><p class="muted">1 point per correct answer, +1 for being fastest.</p>${scoresHTML(g.score)}${endButtons()}</div>`;
-          return;
-        }
-        if (g.q !== shown) { shown = g.q; t0 = performance.now(); }
-        const Q = CONTENT.iq[g.order[g.q]], ans = g.ans || {};
-        if (!g.reveal && both(ans) && isHost() && scored !== g.q) {
-          scored = g.q; const add = {};
-          const right = ids().filter((id) => ans[id].c === Q.a);
-          const fastest = right.sort((x, y) => ans[x].t - ans[y].t)[0];
-          right.forEach((id) => (add[id] = (g.score?.[id] || 0) + 1 + (id === fastest && right.length === 2 ? 1 : 0) + (right.length === 1 ? 1 : 0)));
-          gpatch({ reveal: true, score: add });
-        }
-        const mine = ans[S.me];
-        const cls = (i) => g.reveal ? (i === Q.a ? 'right' : ids().some((id) => ans[id].c === i) ? 'wrong' : '') : mine?.c === i ? 'sel' : '';
-        el.innerHTML = `<div class="panel"><div class="kicker">Question ${g.q + 1} of ${N}</div>
-          ${g.reveal ? '' : `<div class="progress"><i id="tbar" style="width:100%"></i></div>`}
-          <div class="q">${esc(Q.q)}</div>
-          <div class="opts">${Q.o.map((o, i) => `<button class="opt ${cls(i)}" data-p="${i}">${esc(o)}</button>`).join('')}</div>
-          ${g.reveal ? `<div class="reveal">${ids().map((id) => `<div><div class="who">${esc(pname(id))}</div><b>${ans[id].c === Q.a ? '✅' : '❌'} ${ans[id].c === -1 ? 'Out of time' : (ans[id].t / 1000).toFixed(1) + 's'}</b></div>`).join('')}</div>
-            <div class="row"><button class="btn primary" data-a="next">Next →</button></div>`
-            : mine ? `<p class="waiting">Answer locked. Waiting for ${esc(pname(partner()))}…</p>` : ''}
-          ${scoresHTML(g.score)}</div>`;
-      },
-      destroy() { clearInterval(iv); },
-    };
-  },
-};
-
 /* 10. Escape Room — cooperative, each player sees different clues */
 const LOCKS = [
   { name: 'The Painted Safe', answer: '5792', input: '4-digit code',
@@ -819,119 +663,73 @@ GAMES.escape = {
   },
 };
 
-/* 11. Couples Debate — video call */
-const DEBATE_STEPS = [{ w: 0, l: 'Opening argument', sec: 60 }, { w: 1, l: 'Opening argument', sec: 60 }, { w: 0, l: 'Rebuttal', sec: 30 }, { w: 1, l: 'Rebuttal', sec: 30 }];
-GAMES.debate = {
-  init: () => { const P = shuffle(Object.keys(S.players)); return { topic: rand(CONTENT.debates.length), forId: P[0], againstId: P[1], step: -1, votes: {} }; },
-  create(el) {
-    el.innerHTML = `<div class="panel wide">${videoHTML()}<div id="pnl"></div></div>`;
-    updateVideos();
-    const clock = stepClock(() => DEBATE_STEPS);
-    const pnl = $('#pnl', el);
-    el.onclick = (e) => {
-      const a = e.target.closest('[data-a]')?.dataset.a; const g = S.state.g;
-      if (a === 'begin' || a === 'skip') gpatch({ step: g.step + 1 });
-      if (a === 'swap') gpatch({ forId: g.againstId, againstId: g.forId });
-      if (a === 'topic') gpatch({ topic: rand(CONTENT.debates.length) });
-      const v = e.target.closest('[data-v]')?.dataset.v; if (v) gpatch({ votes: { [S.me]: v } });
-    };
-    return {
-      update(g) {
-        if (!S.players[g.forId] || !S.players[g.againstId]) { if (isHost()) { const P = shuffle(ids()); gpatch({ forId: P[0], againstId: P[1] }); } return; }
-        clock.sync(g);
-        const topic = CONTENT.debates[g.topic], side = (id) => (id === g.forId ? 'FOR' : 'AGAINST');
-        const sides = `<div class="reveal"><div><div class="who">FOR</div><b>${esc(pname(g.forId))}</b></div><div><div class="who">AGAINST</div><b>${esc(pname(g.againstId))}</b></div></div>`;
-        let body;
-        if (g.step < 0) {
-          body = `<div class="kicker">Tonight's motion</div><div class="q">"${esc(topic)}"</div>${sides}
-            <div class="row"><button class="btn small" data-a="topic">🎲 New topic</button><button class="btn small" data-a="swap">⇄ Swap sides</button></div>
-            <div class="row"><button class="btn primary big" data-a="begin">Start debate</button></div>`;
-        } else if (g.step < DEBATE_STEPS.length) {
-          const st = DEBATE_STEPS[g.step], spk = st.w === 0 ? g.forId : g.againstId;
-          body = `<div class="kicker">"${esc(topic)}"</div><h2>${esc(pname(spk))} — ${st.l} (${side(spk)})</h2>
-            <div class="timer" id="timer">${fmt(st.sec)}</div><div class="progress"><i id="tbar" style="width:100%"></i></div>
-            ${spk === S.me ? `<p>🎤 You have the floor!</p>` : `<p class="muted">No interrupting 🤐</p>`}
-            <div class="row"><button class="btn small" data-a="skip">${spk === S.me ? "I'm done" : 'Skip'} →</button></div>`;
-        } else {
-          const votes = g.votes || {};
-          if (both(votes)) {
-            const [a, b] = ids(); const agree = votes[a] === votes[b];
-            body = `<div class="big-emoji">🏅</div><h2>${agree ? `${esc(pname(votes[a]))} won the debate!` : 'You each think you won. Classic.'}</h2>
-              <div class="reveal">${ids().map((id) => `<div><div class="who">${esc(pname(id))} voted for</div><b>${esc(pname(votes[id]))}</b></div>`).join('')}</div>${endButtons()}`;
-          } else {
-            body = `<h2>Who argued better?</h2><p class="muted">Be honest…</p>
-              ${votes[S.me] ? `<p class="waiting">Vote in. Waiting for ${esc(pname(partner()))}…</p>` : `<div class="row">${ids().map((id) => `<button class="btn big ${id === S.me ? 'pink' : 'blue'}" data-v="${id}">${esc(pname(id))}</button>`).join('')}</div>`}`;
-          }
-        }
-        pnl.innerHTML = body;
-      },
-      destroy() { clock.stop(); },
-    };
+/* Would You Rather */
+const WYR_CATS = { fun: 'Fun', romantic: 'Romantic', deep: 'Deep', spicy: 'Spicy 🌶️' };
+GAMES.wyr = {
+  init: () => {
+    const order = {}, idx = {};
+    for (const c of Object.keys(WYR_CATS)) { order[c] = shuffle(range(CONTENT.wyr[c].length)); idx[c] = 0; }
+    return { cat: 'fun', order, idx, ans: {}, custom: null, asked: 0, matches: 0, reveal: false };
   },
-};
-
-/* 12. Couples Court — video call */
-const COURT_STEPS = [{ w: 'p', l: 'Plaintiff opening statement', sec: 60 }, { w: 'd', l: 'Defense', sec: 60 }, { w: 'p', l: 'Plaintiff rebuttal', sec: 30 }, { w: 'd', l: 'Closing statement', sec: 30 }];
-GAMES.court = {
-  init: () => { const P = Object.keys(S.players); return { plaintiff: P[rand(P.length)], case: '', step: -1, votes: {}, sentence: rand(CONTENT.sentences.length) }; },
   create(el) {
-    el.innerHTML = `<div class="panel wide">${videoHTML()}<div id="pnl"></div></div>`;
-    updateVideos();
-    const clock = stepClock(() => COURT_STEPS);
-    const pnl = $('#pnl', el);
+    let scored = null, writing = false;
+    const qKey = (g) => (g.custom ? 'c' + g.custom.ts : g.cat + (g.idx[g.cat] || 0));
     el.onclick = (e) => {
-      const a = e.target.closest('[data-a]')?.dataset.a; const g = S.state.g;
-      const sug = e.target.closest('[data-case]'); if (sug) $('#caseIn', el).value = sug.dataset.case;
-      if (a === 'file') { const v = $('#caseIn', el).value.trim(); if (!v) return toast('State the charges first!'); gpatch({ case: v.slice(0, 200), step: 0 }); }
-      if (a === 'swapc') gpatch({ plaintiff: ids().find((id) => id !== g.plaintiff) });
-      if (a === 'skip') gpatch({ step: g.step + 1 });
-      const v = e.target.closest('[data-v]')?.dataset.v; if (v) gpatch({ votes: { [S.me]: v } });
+      const g = S.state.g; const a = e.target.closest('[data-a]')?.dataset.a;
+      const p = e.target.closest('[data-p]'); const cat = e.target.closest('[data-cat]')?.dataset.cat;
+      if (p && g.ans?.[S.me] === undefined && !g.reveal) gpatch({ ans: { [S.me]: +p.dataset.p } });
+      if (cat) gpatch({ cat, custom: null, ans: null, reveal: false });
+      if (a === 'next') gpatch(g.custom ? { custom: null, ans: null, reveal: false } : { idx: { [g.cat]: (g.idx[g.cat] || 0) + 1 }, ans: null, reveal: false });
+      if (a === 'write') { writing = !writing; this_update(); }
+      if (a === 'ask') {
+        const A = $('#customA', el).value.trim(), B = $('#customB', el).value.trim();
+        if (!A || !B) return toast('Fill in both options');
+        writing = false; $('#customA', el).value = ''; $('#customB', el).value = '';
+        gpatch({ custom: { a: A.slice(0, 140), b: B.slice(0, 140), by: S.me, ts: Date.now() }, ans: null, reveal: false });
+      }
     };
-    return {
+    el.onkeydown = (e) => { if (e.key === 'Enter' && e.target.id === 'customB') $('[data-a="ask"]', el)?.click(); };
+    const this_update = () => api.update(S.state.g);
+    const api = {
       update(g) {
-        if (!S.players[g.plaintiff]) { if (isHost()) gpatch({ plaintiff: ids()[rand(2)] }); return; }
-        clock.sync(g);
-        const p = g.plaintiff, d = ids().find((id) => id !== p);
+        const list = CONTENT.wyr[g.cat], ord = g.order[g.cat];
+        const pair = g.custom ? [g.custom.a, g.custom.b] : list[ord[(g.idx[g.cat] || 0) % ord.length]];
+        const ans = g.ans || {};
+        if (!g.reveal && both(ans) && isHost() && scored !== qKey(g)) {
+          scored = qKey(g); const [a, b] = ids();
+          gpatch({ reveal: true, asked: g.asked + 1, matches: g.matches + (ans[a] === ans[b] ? 1 : 0) });
+        }
         let body;
-        if (g.step < 0) {
-          body = p === S.me
-            ? `<div class="kicker">⚖️ Order in the court</div><h2>You're the plaintiff. What's the charge against ${esc(pname(d))}?</h2>
-               <input class="text" id="caseIn" placeholder="e.g. Fell asleep on our call. Again." maxlength="200" style="max-width:520px">
-               <div class="row">${shuffle(CONTENT.courtCases).slice(0, 4).map((c) => `<button class="btn small ghost" data-case="${esc(c)}">${esc(c)}</button>`).join('')}</div>
-               <div class="row"><button class="btn primary big" data-a="file">File the case</button><button class="btn small" data-a="swapc">Actually, I'm the defendant</button></div>`
-            : `<div class="big-emoji">⚖️</div><h2>${esc(pname(p))} is filing charges against you…</h2><p class="waiting">Prepare your defense.</p>
-               <div class="row"><button class="btn small" data-a="swapc">No — I'm the one suing!</button></div>`;
-          if (p === S.me) keepInputs(pnl, () => (pnl.innerHTML = body)); else pnl.innerHTML = body;
-          return;
-        }
-        const charge = `<div class="kicker">${esc(pname(p))} v. ${esc(pname(d))}</div><div class="q">"${esc(g.case)}"</div>`;
-        if (g.step < COURT_STEPS.length) {
-          const st = COURT_STEPS[g.step], spk = st.w === 'p' ? p : d;
-          body = `${charge}<h2>${esc(pname(spk))}: ${st.l}</h2><div class="timer" id="timer">${fmt(st.sec)}</div><div class="progress"><i id="tbar" style="width:100%"></i></div>
-            <div class="row"><button class="btn small" data-a="skip">${spk === S.me ? 'I rest my case' : 'Skip'} →</button></div>`;
+        if (g.reveal) {
+          const [a, b] = ids(), m = ans[a] === ans[b];
+          body = `<div class="big-emoji">${m ? '💞' : '😮'}</div><h2>${m ? 'Same pick!' : 'You picked differently!'}</h2>
+            <div class="reveal">${ids().map((id) => `<div><div class="who">${esc(pname(id))} would rather</div><b>${esc(pair[ans[id]])}</b></div>`).join('')}</div>
+            <p class="muted">${m ? 'Great minds…' : 'Tell each other why in the chat 💬'}</p>
+            <div class="row"><button class="btn primary" data-a="next">Next question →</button></div>`;
         } else {
-          const votes = g.votes || {};
-          if (both(votes)) {
-            const [a, b] = ids(); const gv = [votes[a], votes[b]];
-            const out = gv.every((v) => v === 'guilty') ? 'guilty' : gv.every((v) => v === 'innocent') ? 'innocent' : 'hung';
-            body = `${charge}<div class="big-emoji">${out === 'guilty' ? '🔨' : out === 'innocent' ? '🕊️' : '🤝'}</div>
-              <h2>${out === 'guilty' ? 'GUILTY!' : out === 'innocent' ? 'Case dismissed!' : 'Hung jury!'}</h2>
-              <p>${out === 'guilty' ? `<b>Sentence:</b> ${esc(CONTENT.sentences[g.sentence])}` : out === 'innocent' ? `${esc(pname(d))} walks free.` : 'Settle it with rock-paper-scissors on camera — best of three.'}</p>${endButtons()}`;
-          } else {
-            body = `${charge}<h2>The verdict — be honest!</h2>
-              ${votes[S.me] ? `<p class="waiting">Verdict sealed. Waiting for ${esc(pname(partner()))}…</p>` : `<div class="row"><button class="btn big pink" data-v="guilty">Guilty</button><button class="btn big blue" data-v="innocent">Not guilty</button></div>`}`;
-          }
+          body = `${g.custom ? `<div class="kicker">✍️ Written by ${esc(pname(g.custom.by))}</div>` : ''}
+            <div class="q">Would you rather…</div>
+            <div class="opts">${pair.map((o, i) => `<button class="opt wyr ${ans[S.me] === i ? 'sel' : ''}" data-p="${i}">${esc(o)}</button>`).join('')}</div>
+            ${ans[S.me] !== undefined ? `<p class="waiting">Locked in. Waiting for ${esc(pname(partner()))}…</p>` : ans[partner()] !== undefined ? `<p class="muted">${esc(pname(partner()))} has picked</p>` : ''}`;
         }
-        pnl.innerHTML = body;
+        keepInputs(el, () => {
+          el.innerHTML = `<div class="panel">
+            <div class="tabs">${Object.entries(WYR_CATS).map(([k, v]) => `<button data-cat="${k}" class="${k === g.cat && !g.custom ? 'on' : ''}">${v}</button>`).join('')}</div>
+            <div style="margin-top:18px">${body}</div>
+            <div class="scores"><span class="score">You've matched on ${g.matches} of ${g.asked}</span></div>
+            <div class="row"><button class="btn small ghost" data-a="write">${writing ? 'Cancel' : '✍️ Write your own question'}</button></div>
+            ${writing ? `<div class="custom-q"><input class="text" id="customA" placeholder="Option 1 — e.g. live by the beach" maxlength="140"><span class="muted">or</span><input class="text" id="customB" placeholder="Option 2 — e.g. live in the mountains" maxlength="140"><button class="btn primary" data-a="ask">Ask</button></div>` : ''}
+          </div>`;
+        });
       },
-      destroy() { clock.stop(); },
     };
+    return api;
   },
 };
 
 // ---------------- home wiring ----------------
 $('#home').addEventListener('click', (e) => { const c = e.target.closest('[data-game]'); if (c) createRoom(c.dataset.game); });
-$('#openBooth').onclick = () => createRoom('photobooth');
+$('#openFeatured').onclick = () => createRoom('wyr');
 $('#inviteBtn').onclick = () => createRoom(null, true);
 $('#joinBtn').onclick = () => joinRoom($('#joinCode').value);
 $('#joinCode').onkeydown = (e) => { if (e.key === 'Enter') joinRoom(e.target.value); };

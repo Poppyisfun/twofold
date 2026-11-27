@@ -17,23 +17,26 @@
 
   <main id="home">
     <h1>Activities</h1>
-    <p class="sub">Realtime games for two people on two different devices — one shared room, no app needed.</p>
+    <p class="sub">Games for two people on two different devices. No call needed: play and chat right here.</p>
 
     <section class="featured">
-      <div class="feat-art" aria-hidden="true">
-        <div class="mini-strip"><i class="p"></i><i class="b"></i><i class="p"></i><i class="b"></i><i class="p"></i><i class="b"></i></div>
-      </div>
+      <div class="feat-art" aria-hidden="true"><div class="feat-cards"><span>🏖️ Beach</span><b>or</b><span>🏔️ Mountains</span></div></div>
       <div class="feat-body">
-        <span class="tag">Free to play</span>
-        <h2>Online Photobooth</h2>
-        <p>Both cameras turn on, a countdown starts, and you get one photo strip with the two of you side by side.</p>
-        <button class="btn primary" id="openBooth">Open the booth</button>
+        <span class="tag">New</span>
+        <h2>Would You Rather</h2>
+        <p>Both of you pick in secret, then your answers are revealed together. Choose from fun, romantic, deep or spicy questions, or write your own.</p>
+        <button class="btn primary" id="openFeatured">Start playing</button>
         <div class="joinrow">
           <input id="joinCode" placeholder="Join with a code" maxlength="5" autocomplete="off" autocapitalize="characters">
           <button class="btn" id="joinBtn">Join</button>
           <button class="btn ghost" id="inviteBtn">Invite</button>
         </div>
       </div>
+    </section>
+
+    <section id="myRooms" hidden>
+      <div class="section-head"><h2>Your rooms</h2><span class="muted">Pick up where you left off — even if they're away</span></div>
+      <div class="room-list" id="myRoomsList"></div>
     </section>
 
     <div class="thumbs" id="thumbs"></div>
@@ -55,16 +58,16 @@
         <button class="btn small ghost" id="leaveBtn">Leave</button>
       </div>
     </div>
-    <div id="stage"></div>
+    <div class="roomgrid">
+      <div id="stage"></div>
+      <aside class="chatbox">
+        <div class="chat-head">💬 Chat <span id="typing" class="muted"></span></div>
+        <div id="chatLog"><div class="chat-empty">Say hi 👋 — messages stay here while you play.</div></div>
+        <form id="chatForm"><input id="chatInput" placeholder="Type a message…" maxlength="1000" autocomplete="off"><button class="btn small primary">Send</button></form>
+      </aside>
+    </div>
   </main>
 
-  <aside id="chat" hidden>
-    <button id="chatToggle" class="chat-toggle">💬 Chat <span id="chatBadge" hidden>•</span></button>
-    <div id="chatPanel" hidden>
-      <div id="chatLog"></div>
-      <form id="chatForm"><input id="chatInput" placeholder="Say something…" maxlength="500" autocomplete="off"><button class="btn small primary">Send</button></form>
-    </div>
-  </aside>
 
   <dialog id="nameDlg">
     <form method="dialog" id="nameForm">
@@ -79,5 +82,6 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="/content.js"></script>
   <script src="/app.js"></script>
+  <script src="/games2.js"></script>
 </body>
 </html>
