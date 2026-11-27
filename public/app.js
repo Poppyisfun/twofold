@@ -1,4 +1,4 @@
-/* Twofold client — hub, rooms, video calls and all 12 games */
+/* Param & Nitya’s LDR Date Room — hub, rooms, chat, photobooth camera and games */
 const socket = io();
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -155,7 +155,7 @@ const inviteLink = () => `${location.origin}/?room=${S.code}`;
 async function invite() {
   const url = inviteLink();
   if (navigator.share && /Mobi|Android|iPhone/i.test(navigator.userAgent)) {
-    try { await navigator.share({ title: 'Play with me on Twofold', text: `Join my room: ${S.code}`, url }); return; } catch {}
+    try { await navigator.share({ title: 'Param & Nitya’s LDR Date Room', text: `Join my room: ${S.code}`, url }); return; } catch {}
   }
   try { await navigator.clipboard.writeText(url); toast('Invite link copied!'); }
   catch { prompt('Send this link to your partner:', url); }
@@ -266,9 +266,9 @@ function renderChat(m) {
   d.appendChild(document.createTextNode(m.text));
   log.appendChild(d);
   log.scrollTop = 1e9;
-  if (!mine) { $('#typing').textContent = ''; if (document.hidden) document.title = '💬 New message — Twofold'; }
+  if (!mine) { $('#typing').textContent = ''; if (document.hidden) document.title = '💬 New message — Param & Nitya’s LDR Date Room'; }
 }
-document.addEventListener('visibilitychange', () => { if (!document.hidden) document.title = 'Twofold — games for two, from anywhere'; });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) document.title = 'Param & Nitya’s LDR Date Room 💞'; });
 let typingTm;
 function showTyping() {
   const p = partner(); if (!p) return;
@@ -421,10 +421,10 @@ GAMES.photobooth = {
       x.fillStyle = '#1d1f27'; x.textAlign = 'center'; x.font = 'bold 26px system-ui, sans-serif';
       x.fillText(`${S.players[S.me]?.name || 'Me'} 💞 ${S.players[partner()]?.name || 'You'}`, c.width / 2, c.height - 42);
       x.fillStyle = '#6b7080'; x.font = '16px system-ui, sans-serif';
-      x.fillText(new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) + ' · Twofold', c.width / 2, c.height - 16);
+      x.fillText(new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) + ' · Param & Nitya’s LDR Date Room', c.width / 2, c.height - 16);
       const url = c.toDataURL('image/jpeg', 0.92);
       $('#hint', el).textContent = 'Here you go! Want another?';
-      $('#strip', el).innerHTML = `<img src="${url}" alt="Photo strip"><div class="row"><a class="btn primary" download="twofold-photostrip.jpg" href="${url}">Download strip</a></div>`;
+      $('#strip', el).innerHTML = `<img src="${url}" alt="Photo strip"><div class="row"><a class="btn primary" download="param-nitya-photostrip.jpg" href="${url}">Download strip</a></div>`;
     }
     return {
       update(g) { if ((g.run || 0) > lastRun) { lastRun = g.run; sequence(g.run); } },
@@ -514,7 +514,7 @@ GAMES.draw = {
       if (a === 'eraser') { erasing = !erasing; e.target.classList.toggle('primary', erasing); }
       if (a === 'clear') { hist = []; wipe(); socket.emit('msg', { t: 'clear' }); }
       if (a === 'prompt') gpatch({ prompt: CONTENT.drawPrompts[rand(CONTENT.drawPrompts.length)] });
-      if (a === 'save') { const l = document.createElement('a'); l.download = 'twofold-drawing.png'; l.href = cv.toDataURL('image/png'); l.click(); }
+      if (a === 'save') { const l = document.createElement('a'); l.download = 'param-nitya-drawing.png'; l.href = cv.toDataURL('image/png'); l.click(); }
     };
     socket.emit('msg', { t: 'syncreq' });
     return {

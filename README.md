@@ -1,6 +1,6 @@
-# Twofold — realtime games for two
+# Param & Nitya’s LDR Date Room 💞
 
-Twofold lets two people on two different computers or phones play games together in one shared room. Each room has a 5-letter code and an invite link. No accounts are needed.
+This site lets two people on two different computers or phones play games together in one shared room. Each room has a 5-letter code and an invite link. No accounts are needed.
 
 **16 activities**
 - **Live** (you both need to be online): Online Photobooth (camera), Guess My Drawing, Draw Together
@@ -58,7 +58,7 @@ The Photobooth connects the two cameras directly (peer-to-peer WebRTC) and uses 
 
 - **Questions and prompts (Would You Rather, quiz, cards):** edit `public/content.js`
 - **Colors and fonts:** edit `public/style.css` (see the `:root` variables at the top)
-- **Name and logo:** search for "Twofold" in `public/index.html` and `public/app.js`
+- **Name and logo:** search for "Param & Nitya’s LDR Date Room" in `public/index.html` and `public/app.js`
 
 ## How it works
 

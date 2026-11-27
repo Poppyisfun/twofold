@@ -1,4 +1,4 @@
-/* Twofold — more games: Guess My Drawing, Two Truths and a Lie, Story Together, Never Have I Ever,
+/* Param & Nitya’s LDR Date Room — more games: Guess My Drawing, Two Truths and a Lie, Story Together, Never Have I Ever,
    Hangman, Tic-Tac-Toe, Connect Four, Battleship, Our Bucket List */
 
 const other = (id) => ids().find((i) => i !== id);

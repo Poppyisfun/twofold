@@ -1,4 +1,4 @@
-// Twofold — games for two. Rooms that persist (play anytime), shared state sync, chat,
+// Param & Nitya’s LDR Date Room — games for two. Rooms that persist (play anytime), shared state sync, chat,
 // and WebRTC signaling for the photobooth.
 const express = require('express');
 const http = require('http');
@@ -215,4 +215,4 @@ io.on('connection', (socket) => {
   socket.on('disconnect', leave);
 });
 
-server.listen(PORT, () => console.log(`Twofold running on http://localhost:${PORT}${REDIS_URL ? ' (saving rooms to Upstash)' : ''}`));
+server.listen(PORT, () => console.log(`Param & Nitya’s LDR Date Room running on http://localhost:${PORT}${REDIS_URL ? ' (saving rooms to Upstash)' : ''}`));
